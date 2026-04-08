@@ -91,6 +91,28 @@ workflow:
               'Deny-All-Default',
             ];
 
+            // Rule-to-profile mapping: each rule only fires for realistic app/port combos
+            const RULE_PROFILES = {
+              'Deny-Inbound-RDP':        [{ app: 'rdp',           dport: 3389, proto: 6,  risk: 5 }],
+              'Deny-SQL-External':       [{ app: 'ms-sql-server', dport: 1433, proto: 6,  risk: 4 },
+                                          { app: 'mysql',         dport: 3306, proto: 6,  risk: 4 }],
+              'Deny-FTP-External':       [{ app: 'ftp',           dport: 21,   proto: 6,  risk: 4 }],
+              'Block-Suspicious-Ports':  [{ app: 'unknown-tcp',   dport: 4444, proto: 6,  risk: 5 },
+                                          { app: 'unknown-tcp',   dport: 8080, proto: 6,  risk: 3 }],
+              'Deny-All-Default':        TRAFFIC_PROFILES,
+              'Allow-Outbound-Web':      [{ app: 'web-browsing',  dport: 80,   proto: 6,  risk: 1 },
+                                          { app: 'ssl',           dport: 443,  proto: 6,  risk: 1 }],
+              'Allow-DNS':               [{ app: 'dns',           dport: 53,   proto: 17, risk: 1 }],
+              'Allow-Internal-SSH':      [{ app: 'ssh',           dport: 22,   proto: 6,  risk: 3 }],
+              'Allow-VPN-Access':        [{ app: 'web-browsing',  dport: 80,   proto: 6,  risk: 1 },
+                                          { app: 'ssl',           dport: 443,  proto: 6,  risk: 1 },
+                                          { app: 'dns',           dport: 53,   proto: 17, risk: 1 },
+                                          { app: 'ssh',           dport: 22,   proto: 6,  risk: 3 }],
+              'Allow-NTP':               [{ app: 'ntp',           dport: 123,  proto: 17, risk: 1 }],
+              'Allow-DMZ-Inbound-HTTPS': [{ app: 'ssl',           dport: 443,  proto: 6,  risk: 1 },
+                                          { app: 'web-browsing',  dport: 80,   proto: 6,  risk: 1 }],
+            };
+
             // ---------------------------------------------------------------
             // Helpers
             // ---------------------------------------------------------------
@@ -129,19 +151,15 @@ workflow:
             // ---------------------------------------------------------------
             function buildLogLine(index) {
               const isBlocked = Math.random() < BLOCK_RATIO;
-              const profile   = pick(TRAFFIC_PROFILES);
-
-              // Higher-risk apps are more likely to be blocked
-              const effectiveBlock = isBlocked || profile.risk >= 5;
-
-              const action    = effectiveBlock
+              const rule      = isBlocked ? pick(DENY_RULES) : pick(ALLOW_RULES);
+              const profile   = pick(RULE_PROFILES[rule]);
+              const action    = isBlocked
                                   ? pick(['deny', 'drop', 'reset-both'])
                                   : 'allow';
-              const rule      = effectiveBlock ? pick(DENY_RULES) : pick(ALLOW_RULES);
 
               // Direction: blocked traffic is mostly inbound
               let src, dst;
-              if (effectiveBlock && Math.random() < 0.7) {
+              if (isBlocked && Math.random() < 0.7) {
                 src = pick(EXTERNAL_SUBNETS);
                 dst = pick(INTERNAL_SUBNETS);
               } else {
@@ -155,21 +173,21 @@ workflow:
               const dstPort = profile.dport;
               const proto   = profile.proto;
 
-              const bytes_sent = effectiveBlock ? 0 : randomInt(200, 500000);
-              const bytes_recv = effectiveBlock ? 0 : randomInt(200, 800000);
-              const pkts_sent  = effectiveBlock ? randomInt(1, 3) : randomInt(5, 2000);
-              const pkts_recv  = effectiveBlock ? 0 : randomInt(5, 3000);
-              const elapsed    = effectiveBlock ? 0 : randomInt(1, 300);
+              const bytes_sent = isBlocked ? 0 : randomInt(200, 500000);
+              const bytes_recv = isBlocked ? 0 : randomInt(200, 800000);
+              const pkts_sent  = isBlocked ? randomInt(1, 3) : randomInt(5, 2000);
+              const pkts_recv  = isBlocked ? 0 : randomInt(5, 3000);
+              const elapsed    = isBlocked ? 0 : randomInt(1, 300);
 
               const sessionId = generateSessionId();
               const ts        = generateTimestamp(index);
               const repeatCnt = 1;
 
-              const sessionEnd = effectiveBlock
+              const sessionEnd = isBlocked
                 ? pick(['policy-deny', 'threat'])
                 : pick(['tcp-fin', 'tcp-rst-from-client', 'tcp-rst-from-server', 'aged-out']);
 
-              const category = effectiveBlock
+              const category = isBlocked
                 ? pick(['malware', 'command-and-control', 'hacking', 'any'])
                 : pick(['general-internet', 'business-and-economy', 'computer-and-internet-info', 'any']);
 
