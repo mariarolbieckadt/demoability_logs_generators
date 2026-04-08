@@ -1,0 +1,137 @@
+// ============================================================
+// Fortinet FortiGate DQL Queries
+// Used in Dynatrace Notebooks and Dashboards
+// log.source = "fortinet-fortigate"
+// ============================================================
+
+
+// 1. All Fortinet logs (last 1 hour)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| sort timestamp desc
+| limit 100
+
+
+// 2. Traffic volume by action (accept vs deny)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| summarize count = count(), by: { fortinet.action }
+| sort count desc
+
+
+// 3. Top blocked source IPs
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| filter in(fortinet.action, "deny", "server-rst", "client-rst")
+| summarize count = count(), by: { fortinet.srcip }
+| sort count desc
+| limit 20
+
+
+// 4. Top blocked destination IPs
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| filter in(fortinet.action, "deny", "server-rst", "client-rst")
+| summarize count = count(), by: { fortinet.dstip }
+| sort count desc
+| limit 20
+
+
+// 5. Top deny policies triggered
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| filter in(fortinet.action, "deny", "server-rst", "client-rst")
+| summarize count = count(), by: { fortinet.policyname }
+| sort count desc
+
+
+// 6. Traffic by service/port
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| summarize count = count(), by: { fortinet.service, fortinet.dstport }
+| sort count desc
+| limit 20
+
+
+// 7. IPS/UTM events (intrusion detections)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "utm"
+| filter fortinet.subtype == "ips"
+| sort timestamp desc
+| limit 50
+
+
+// 8. IPS events by attack signature
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "utm"
+| filter fortinet.subtype == "ips"
+| summarize count = count(), by: { fortinet.attack, fortinet.severity }
+| sort count desc
+
+
+// 9. IPS events by source country
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "utm"
+| filter fortinet.subtype == "ips"
+| summarize count = count(), by: { fortinet.srccountry }
+| sort count desc
+
+
+// 10. VPN events (login/logout)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "event"
+| filter fortinet.subtype == "vpn"
+| sort timestamp desc
+| limit 50
+
+
+// 11. VPN failed logins
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "event"
+| filter fortinet.subtype == "vpn"
+| filter in(fortinet.action, "ssl-login-fail", "tunnel-down", "tunnel-stats")
+| summarize count = count(), by: { fortinet.user, fortinet.remip }
+| sort count desc
+
+
+// 12. Traffic by source/dest country pair
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| summarize count = count(), by: { fortinet.srccountry, fortinet.dstcountry }
+| sort count desc
+| limit 20
+
+
+// 13. Bandwidth: bytes transferred by policy
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "traffic"
+| filter fortinet.action == "accept"
+| summarize sentbyte = sum(fortinet.sentbyte), rcvdbyte = sum(fortinet.rcvdbyte), count = count(), by: { fortinet.policyname }
+| sort sentbyte desc
+
+
+// 14. Log event volume over time (5-minute buckets)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| makeTimeseries count = count(), by: { fortinet.type }, interval: 5m
+
+
+// 15. System events (admin actions, HA changes)
+fetch logs
+| filter log.source == "fortinet-fortigate"
+| filter fortinet.type == "event"
+| filter fortinet.subtype == "system"
+| sort timestamp desc
+| limit 50

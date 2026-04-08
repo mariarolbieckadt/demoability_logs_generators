@@ -1,0 +1,123 @@
+// ============================================================
+// Cisco ASA Firewall DQL Queries
+// Used in Dynatrace Notebooks and Dashboards
+// log.source = "cisco-asa"
+// ============================================================
+
+
+// 1. All Cisco ASA logs (last 1 hour)
+fetch logs
+| filter log.source == "cisco-asa"
+| sort timestamp desc
+| limit 100
+
+
+// 2. Event count by syslog message ID
+fetch logs
+| filter log.source == "cisco-asa"
+| summarize count = count(), by: { cisco.message_id }
+| sort count desc
+
+
+// 3. ACL deny events (106023)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "106023"
+| sort timestamp desc
+| limit 50
+
+
+// 4. Top denied source IPs (106023)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "106023"
+| summarize count = count(), by: { cisco.src_ip }
+| sort count desc
+| limit 20
+
+
+// 5. Top blocked destination ports (deny events)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter in(cisco.action, "deny", "auth-failed")
+| summarize count = count(), by: { cisco.dst_port, cisco.protocol }
+| sort count desc
+| limit 20
+
+
+// 6. ACL permit events (106100) — accepted traffic
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "106100"
+| sort timestamp desc
+| limit 50
+
+
+// 7. TCP connection built events (302013)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "302013"
+| sort timestamp desc
+| limit 50
+
+
+// 8. TCP connection teardown (302014) with reason
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "302014"
+| summarize count = count(), by: { cisco.reason }
+| sort count desc
+
+
+// 9. Port-based blocks by ASA (710003)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "710003"
+| summarize count = count(), by: { cisco.src_ip, cisco.dst_port }
+| sort count desc
+| limit 20
+
+
+// 10. VPN sessions started (113039)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "113039"
+| sort timestamp desc
+| limit 50
+
+
+// 11. VPN sessions disconnected (113019) by reason
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "113019"
+| summarize count = count(), by: { cisco.reason, cisco.group }
+| sort count desc
+
+
+// 12. AAA authentication failures (113005)
+fetch logs
+| filter log.source == "cisco-asa"
+| filter cisco.message_id == "113005"
+| summarize count = count(), by: { cisco.user }
+| sort count desc
+
+
+// 13. Security events (deny + auth-failed) over time
+fetch logs
+| filter log.source == "cisco-asa"
+| filter in(cisco.action, "deny", "auth-failed")
+| makeTimeseries count = count(), by: { cisco.action }, interval: 5m
+
+
+// 14. All events volume over time by message family
+fetch logs
+| filter log.source == "cisco-asa"
+| makeTimeseries count = count(), by: { cisco.message_id }, interval: 5m
+
+
+// 15. Connection summary: built vs teardown
+fetch logs
+| filter log.source == "cisco-asa"
+| filter in(cisco.message_id, "302013", "302014", "302015", "302016")
+| summarize count = count(), by: { cisco.message_id, cisco.protocol }
+| sort count desc

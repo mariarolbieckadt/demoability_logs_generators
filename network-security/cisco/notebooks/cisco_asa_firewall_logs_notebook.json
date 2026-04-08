@@ -1,0 +1,400 @@
+{
+  "version": "6",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "id": "c1000000-0000-0000-0000-000000000001",
+      "type": "markdown",
+      "markdown": "# Cisco ASA Firewall Log Analysis\n\nThis notebook contains DQL queries for analyzing Cisco Secure Firewall ASA syslog messages ingested by the **Cisco ASA Firewall Log Generator** Dynatrace workflow.\n\nThe workflow generates a realistic mix of connection events, ACL decisions, port scans, and VPN/AAA events. Logs are ingested into Grail with structured `cisco.*` attributes following the official ASA syslog message ID format (`%ASA-<severity>-<msgid>:`).\n\n| Attribute | Values |\n|---|---|\n| `log.source` | `cisco-asa` |\n| `cisco.message_id` | `106023`, `106100`, `302013`, `302014`, `302015`, `302016`, `710003`, `113039`, `113019`, `113005` |\n| `cisco.action` | `deny`, `permit`, `built`, `teardown`, `auth-failed` |\n\n---"
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000010",
+      "type": "markdown",
+      "markdown": "## 1. All Cisco ASA Logs — Overview\nAll ingested syslog entries with key parsed fields. Use this as a starting point to confirm data is flowing."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000011",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| fields timestamp,\n         cisco.message_id,\n         cisco.action,\n         cisco.src_ip,\n         cisco.dst_ip,\n         cisco.protocol,\n         cisco.src_port,\n         cisco.dst_port,\n         cisco.acl_name,\n         cisco.user,\n         cisco.reason,\n         hostname\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000020",
+      "type": "markdown",
+      "markdown": "## 2. Denied / Blocked Events\nAll access-list denials and authentication failures. Validates the firewall **IS** blocking traffic."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000021",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"deny\", \"auth-failed\")\n| fields timestamp,\n         cisco.message_id,\n         cisco.action,\n         cisco.src_ip,\n         cisco.dst_ip,\n         cisco.protocol,\n         cisco.dst_port,\n         cisco.acl_name,\n         cisco.user\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000030",
+      "type": "markdown",
+      "markdown": "## 3. Permitted / Connected Events\nAll permitted or built connections — confirms the firewall is **NOT** blocking all traffic."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000031",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"permit\", \"built\")\n| fields timestamp,\n         cisco.message_id,\n         cisco.action,\n         cisco.src_ip,\n         cisco.dst_ip,\n         cisco.protocol,\n         cisco.dst_port,\n         cisco.acl_name,\n         cisco.connection_id\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000040",
+      "type": "markdown",
+      "markdown": "## 4. Event Summary — Deny vs Permit\nSingle-glance validation: is the expected mix of allowed and blocked traffic present?"
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000041",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| fieldsAdd is_blocked = in(cisco.action, \"deny\", \"auth-failed\")\n| summarize total = count(),\n            denied = countIf(is_blocked),\n            permitted = countIf(NOT is_blocked)\n| fieldsAdd denied_pct = round(toDouble(denied) / toDouble(total) * 100, decimals: 1),\n            permitted_pct = round(toDouble(permitted) / toDouble(total) * 100, decimals: 1)"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000050",
+      "type": "markdown",
+      "markdown": "## 5. Denied by ACL Name\nWhich access-list rules (msg 106023) are firing most? Key for understanding deny policy coverage."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000051",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter cisco.message_id == \"106023\"\n| summarize deny_count = count(),\n            unique_sources = countDistinct(cisco.src_ip),\n            unique_ports = countDistinct(cisco.dst_port),\n            by: { cisco.acl_name }\n| sort deny_count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000060",
+      "type": "markdown",
+      "markdown": "## 6. Denied by Destination Port\nWhich ports are being blocked most frequently? Helps identify scan activity or misconfigured services."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000061",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"deny\")\n| summarize deny_count = count(),\n            protocols = collectDistinct(cisco.protocol),\n            acls_applied = collectDistinct(cisco.acl_name),\n            by: { cisco.dst_port }\n| sort deny_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000070",
+      "type": "markdown",
+      "markdown": "## 7. Events by Message ID\nVolume distribution across all 10 ASA syslog message IDs. Each ID maps to a specific event class."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000071",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| summarize count = count(),\n            by: { cisco.message_id }\n| sort count desc"
+        },
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "categoricalBarChartSettings": {
+              "layout": "horizontal",
+              "categoryAxis": "cisco.message_id",
+              "categoryAxisLabel": "Message ID",
+              "valueAxis": "count",
+              "valueAxisLabel": "Count"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000080",
+      "type": "markdown",
+      "markdown": "## 8. VPN Session Analysis\nTunnels started (113039), disconnected (113019), and authentication failures (113005) by VPN group."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000081",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.message_id, \"113039\", \"113019\", \"113005\")\n| summarize total = count(),\n            started = countIf(cisco.message_id == \"113039\"),\n            disconnected = countIf(cisco.message_id == \"113019\"),\n            auth_failed = countIf(cisco.message_id == \"113005\"),\n            by: { cisco.group }\n| sort total desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000090",
+      "type": "markdown",
+      "markdown": "## 9. Top Denied Source IPs\nWhich source IPs are generating the most denied traffic? Potential scanners or threat actors."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000091",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"deny\", \"auth-failed\")\n| summarize deny_count = count(),\n            targets = countDistinct(cisco.dst_ip),\n            msg_ids = collectDistinct(cisco.message_id),\n            by: { cisco.src_ip }\n| sort deny_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000100",
+      "type": "markdown",
+      "markdown": "## 10. Top Targeted Destination IPs\nWhich internal IPs are receiving the most denied traffic? Potential high-value targets being probed."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000101",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"deny\")\n| summarize deny_count = count(),\n            attacking_sources = countDistinct(cisco.src_ip),\n            ports_targeted = collectDistinct(cisco.dst_port),\n            by: { cisco.dst_ip }\n| sort deny_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000110",
+      "type": "markdown",
+      "markdown": "## 11. Security Events Over Time\nTime series of security events (deny/auth-failed) vs normal events — use to spot anomaly spikes."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000111",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| fieldsAdd is_security = in(cisco.action, \"deny\", \"auth-failed\")\n| makeTimeseries security_events = countIf(is_security),\n                 normal_events = countIf(NOT is_security),\n                 interval: 5m"
+        },
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "legend": {
+              "hidden": false,
+              "position": "auto"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000120",
+      "type": "markdown",
+      "markdown": "## 12. High-Risk Port Blocks\nBlocks on sensitive ports: RDP (3389), SQL Server (1433), SMB (445), Telnet (23), FTP (21), SSH (22)."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000121",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter in(cisco.action, \"deny\")\n| filter cisco.dst_port == 3389\n     OR cisco.dst_port == 1433\n     OR cisco.dst_port == 445\n     OR cisco.dst_port == 23\n     OR cisco.dst_port == 21\n     OR cisco.dst_port == 22\n| fields timestamp,\n         cisco.src_ip,\n         cisco.dst_ip,\n         cisco.dst_port,\n         cisco.protocol,\n         cisco.action,\n         cisco.acl_name,\n         cisco.message_id\n| sort timestamp desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "rowDensity": "condensed",
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000130",
+      "type": "markdown",
+      "markdown": "## 13. Connection Teardown Reason Breakdown\nWhy are TCP/UDP connections ending? (msg 302014 — teardown). `TCP Reset` and `Flow closed by inspection` indicate security actions; `TCP FIN` is normal."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000131",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter cisco.message_id == \"302014\"\n| summarize count = count(),\n            by: { cisco.reason, cisco.protocol }\n| sort count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000140",
+      "type": "markdown",
+      "markdown": "## 14. VPN Disconnects by Reason and Group\nBreakdown of VPN tunnel disconnects (msg 113019) by disconnect reason and VPN group. Helps identify unstable groups or forced disconnects."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000141",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter cisco.message_id == \"113019\"\n| summarize count = count(),\n            unique_users = countDistinct(cisco.user),\n            by: { cisco.reason, cisco.group }\n| sort count desc"
+        },
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "categoricalBarChartSettings": {
+              "layout": "horizontal",
+              "categoryAxis": "cisco.reason",
+              "categoryAxisLabel": "Disconnect Reason",
+              "valueAxis": "count",
+              "valueAxisLabel": "Count"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000150",
+      "type": "markdown",
+      "markdown": "## 15. AAA / Authentication Failure Analysis\nAll authentication failures (msg 113005) broken down by user and VPN group. High failure counts for a single user indicate credential stuffing or a locked-out user."
+    },
+    {
+      "id": "c1000000-0000-0000-0000-000000000151",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"cisco-asa\"\n| filter cisco.message_id == \"113005\"\n| summarize auth_failure_count = count(),\n            groups_attempted = collectDistinct(cisco.group),\n            by: { cisco.user }\n| sort auth_failure_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    }
+  ]
+}

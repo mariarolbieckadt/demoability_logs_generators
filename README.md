@@ -53,8 +53,8 @@ dtctl query "fetch logs | filter log.source == \"palo-alto-firewall\" | summariz
 | Vendor | Category | Workflow | Queries | Notebook | Dashboard | Deployed (staging) |
 |--------|----------|----------|---------|----------|-----------|-------------------|
 | Palo Alto | Network Security | ✅ | ✅ 15 queries | ✅ | ✅ | ✅ |
-| Fortinet | Network Security | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Cisco ASA/FTD | Network Security | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Fortinet FortiGate | Network Security | ✅ | ✅ 15 queries | ✅ | ✅ | ✅ |
+| Cisco ASA/FTD | Network Security | ✅ | ✅ 15 queries | ✅ | ✅ | ✅ |
 | Kong | API Gateway | ❌ | ❌ | ❌ | ❌ | ❌ |
 | MuleSoft | API Gateway | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Okta | IdP | ❌ | ❌ | ❌ | ❌ | ❌ |

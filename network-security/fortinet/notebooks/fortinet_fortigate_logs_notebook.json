@@ -1,0 +1,399 @@
+{
+  "version": "6",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "id": "b1000000-0000-0000-0000-000000000001",
+      "type": "markdown",
+      "markdown": "# Fortinet FortiGate Firewall Log Analysis\n\nThis notebook contains DQL queries for analyzing Fortinet FortiOS syslog events ingested by the **Fortinet FortiGate Log Generator** Dynatrace workflow.\n\nThe workflow generates a realistic mix of traffic logs, IPS/UTM detections, VPN events, and system messages. Logs are ingested into Grail with structured `fortinet.*` attributes following the FortiOS 7.x key=value syslog format.\n\n| Attribute | Values |\n|---|---|\n| `log.source` | `fortinet-fortigate` |\n| `fortinet.type` | `traffic`, `utm`, `vpn`, `system`, `event` |\n| `fortinet.action` | `accept`, `deny`, `server-rst`, `client-rst` |\n| `fortinet.subtype` | `forward`, `ips`, `dns`, `ssl`, `local`, `generic` |\n\n---"
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000010",
+      "type": "markdown",
+      "markdown": "## 1. All Fortinet FortiGate Logs — Overview\nAll ingested log entries with key parsed fields. Use this as a starting point to confirm data is flowing."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000011",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| fields timestamp,\n         fortinet.type,\n         fortinet.subtype,\n         fortinet.action,\n         fortinet.srcip,\n         fortinet.dstip,\n         fortinet.service,\n         fortinet.policyname,\n         fortinet.srcintf,\n         fortinet.dstintf,\n         fortinet.dstport,\n         fortinet.sentbyte,\n         fortinet.rcvdbyte,\n         hostname\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000020",
+      "type": "markdown",
+      "markdown": "## 2. Blocked Traffic Only\nAll denied, reset, or blocked sessions from traffic logs. Validates the firewall **IS** blocking traffic."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000021",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| fields timestamp,\n         fortinet.action,\n         fortinet.srcip,\n         fortinet.dstip,\n         fortinet.service,\n         fortinet.policyname,\n         fortinet.srcintf,\n         fortinet.dstintf,\n         fortinet.dstport,\n         fortinet.srccountry\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000030",
+      "type": "markdown",
+      "markdown": "## 3. Allowed / Accepted Traffic\nAll permitted sessions — confirms the firewall is **NOT** blocking everything."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000031",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action == \"accept\"\n| fields timestamp,\n         fortinet.action,\n         fortinet.srcip,\n         fortinet.dstip,\n         fortinet.service,\n         fortinet.policyname,\n         fortinet.dstport,\n         fortinet.sentbyte,\n         fortinet.rcvdbyte\n| sort timestamp desc\n| limit 100"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000040",
+      "type": "markdown",
+      "markdown": "## 4. Traffic Summary — Accept vs Block\nSingle-glance validation of the expected allow/deny mix."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000041",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| fieldsAdd is_blocked = fortinet.action != \"accept\"\n| summarize total = count(),\n            accepted = countIf(NOT is_blocked),\n            blocked = countIf(is_blocked)\n| fieldsAdd accepted_pct = round(toDouble(accepted) / toDouble(total) * 100, decimals: 1),\n            blocked_pct = round(toDouble(blocked) / toDouble(total) * 100, decimals: 1)"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000050",
+      "type": "markdown",
+      "markdown": "## 5. Blocked Traffic by Firewall Policy\nWhich deny policies are firing most? Useful for policy review and runbook creation."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000051",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| summarize block_count = count(),\n            unique_sources = countDistinct(fortinet.srcip),\n            unique_services = countDistinct(fortinet.service),\n            by: { fortinet.policyname }\n| sort block_count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000060",
+      "type": "markdown",
+      "markdown": "## 6. Blocked Traffic by Service\nWhich services (protocols/ports) are being blocked most often?"
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000061",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| summarize block_count = count(),\n            unique_sources = countDistinct(fortinet.srcip),\n            policies_triggered = collectDistinct(fortinet.policyname),\n            by: { fortinet.service }\n| sort block_count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000070",
+      "type": "markdown",
+      "markdown": "## 7. Blocked Traffic by Action Type\nBreakdown of `deny` vs `server-rst` vs `client-rst` actions."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000071",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| summarize count = count(),\n            by: { fortinet.action }\n| sort count desc"
+        },
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "categoricalBarChartSettings": {
+              "layout": "horizontal",
+              "categoryAxis": "fortinet.action",
+              "categoryAxisLabel": "Action",
+              "valueAxis": "count",
+              "valueAxisLabel": "Count"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000080",
+      "type": "markdown",
+      "markdown": "## 8. Interface Pair Analysis\nTraffic between physical/logical interfaces — reveals inbound vs outbound blocking patterns."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000081",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| summarize total = count(),\n            accepted = countIf(fortinet.action == \"accept\"),\n            blocked = countIf(fortinet.action != \"accept\"),\n            by: { fortinet.srcintf, fortinet.dstintf }\n| fieldsAdd block_rate = round(toDouble(blocked) / toDouble(total) * 100, decimals: 1)\n| sort block_rate desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000090",
+      "type": "markdown",
+      "markdown": "## 9. Top Blocked Destination IPs\nWhich internal IPs are receiving the most blocked traffic? Potential indicators of scan targets."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000091",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| summarize block_count = count(),\n            attacking_sources = countDistinct(fortinet.srcip),\n            services_targeted = collectDistinct(fortinet.service),\n            by: { fortinet.dstip }\n| sort block_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000100",
+      "type": "markdown",
+      "markdown": "## 10. Top Blocked Source IPs (with Country)\nWhich external source IPs are being blocked most? Includes source country for geo-context."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000101",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action != \"accept\"\n| summarize block_count = count(),\n            targets = countDistinct(fortinet.dstip),\n            policies_hit = collectDistinct(fortinet.policyname),\n            country = takeFirst(fortinet.srccountry),\n            by: { fortinet.srcip }\n| sort block_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000110",
+      "type": "markdown",
+      "markdown": "## 11. Traffic Events Over Time\nTime series of allowed vs blocked traffic — use to spot spikes, anomalies, or missing data."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000111",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| fieldsAdd is_blocked = fortinet.action != \"accept\"\n| makeTimeseries allowed = countIf(NOT is_blocked),\n                 blocked = countIf(is_blocked),\n                 interval: 5m"
+        },
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "legend": {
+              "hidden": false,
+              "position": "auto"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000120",
+      "type": "markdown",
+      "markdown": "## 12. High-Risk Port Blocks\nBlocks on sensitive ports: RDP (3389), SQL Server (1433), MySQL (3306), FTP (21), SMB (445), Telnet (23)."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000121",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.action != \"accept\"\n| filter fortinet.dstport == 3389\n     OR fortinet.dstport == 1433\n     OR fortinet.dstport == 3306\n     OR fortinet.dstport == 21\n     OR fortinet.dstport == 445\n     OR fortinet.dstport == 23\n| fields timestamp,\n         fortinet.srcip,\n         fortinet.dstip,\n         fortinet.dstport,\n         fortinet.service,\n         fortinet.action,\n         fortinet.policyname,\n         fortinet.srccountry\n| sort timestamp desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000130",
+      "type": "markdown",
+      "markdown": "## 13. IPS / UTM Detections\nIntrusion prevention and unified threat management events. `fortinet.type == \"utm\"` with IPS detect actions. Includes attack name and severity."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000131",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"utm\"\n| summarize count = count(),\n            sources = countDistinct(fortinet.srcip),\n            targets = countDistinct(fortinet.dstip),\n            by: { fortinet.attack, fortinet.severity }\n| sort count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000140",
+      "type": "markdown",
+      "markdown": "## 14. Bandwidth Analysis by Service\nBytes sent and received for accepted connections, grouped by service. Blocked sessions transfer 0 bytes."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000141",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| filter fortinet.type == \"traffic\"\n| filter fortinet.action == \"accept\"\n| summarize total_sent = sum(fortinet.sentbyte),\n            total_received = sum(fortinet.rcvdbyte),\n            session_count = count(),\n            by: { fortinet.service }\n| fieldsAdd total_bytes = total_sent + total_received\n| sort total_bytes desc"
+        },
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect",
+            "categoricalBarChartSettings": {
+              "layout": "horizontal",
+              "categoryAxis": "fortinet.service",
+              "categoryAxisLabel": "Service",
+              "valueAxis": "total_bytes",
+              "valueAxisLabel": "Total Bytes"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000150",
+      "type": "markdown",
+      "markdown": "## 15. Log Type Breakdown\nAll log entries grouped by `fortinet.type` (traffic, utm, vpn, system, event). Confirms the generator is producing the full expected log family mix."
+    },
+    {
+      "id": "b1000000-0000-0000-0000-000000000151",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter log.source == \"fortinet-fortigate\"\n| summarize count = count(),\n            subtypes = collectDistinct(fortinet.subtype),\n            by: { fortinet.type }\n| sort count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    }
+  ]
+}
