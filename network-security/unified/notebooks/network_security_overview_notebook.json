@@ -1,0 +1,230 @@
+{
+  "version": "6",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "id": "u1000000-0000-0000-0000-000000000001",
+      "type": "markdown",
+      "markdown": "# Network Security Overview — Cross-Vendor Analysis\n\nThis notebook provides a unified view across all 3 firewall vendors:\n- **Palo Alto PAN-OS** (`log.source == \"palo-alto-firewall\"`, attributes: `paloalto.*`)\n- **Cisco ASA** (`log.source == \"cisco-asa\"`, attributes: `cisco.*`)\n- **Fortinet FortiGate** (`log.source == \"fortinet-fortigate\"`, attributes: `fortinet.*`)\n\nAll queries use DQL normalization to provide a consistent cross-vendor view.\n\n---"
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000010",
+      "type": "markdown",
+      "markdown": "## 1. Event Volume by Vendor\nTotal log count per firewall vendor in the selected timeframe."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000011",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\"))\n| summarize total = count(),\n            by: { vendor }\n| sort total desc"
+        },
+        "visualization": "categoricalBarChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "categoricalBarChartSettings": {
+              "categoryAxis": "vendor",
+              "categoryAxisLabel": "Vendor",
+              "valueAxis": "total",
+              "valueAxisLabel": "Event Count"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000020",
+      "type": "markdown",
+      "markdown": "## 2. Block Rate by Vendor\nPercentage of blocked/denied events per vendor. Normalizes across different action value names."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000021",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| fieldsAdd is_blocked = NOT in(raw_action, \"allow\", \"permit\", \"built\", \"accept\", \"teardown\", \"ssl-login-succeed\", \"login\", \"logout\", \"config-change\")\n| summarize total = count(),\n            blocked = countIf(is_blocked),\n            by: { vendor }\n| fieldsAdd block_rate = round(toDouble(blocked) / toDouble(total) * 100, decimals: 1)\n| sort block_rate desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000030",
+      "type": "markdown",
+      "markdown": "## 3. All Events Over Time by Vendor\nStacked area chart showing event volume per vendor over time."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000031",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\"))\n| makeTimeseries palo_alto = countIf(vendor == \"Palo Alto\"),\n                 cisco_asa = countIf(vendor == \"Cisco ASA\"),\n                 fortinet = countIf(vendor == \"Fortinet\"),\n                 interval: 5m"
+        },
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000040",
+      "type": "markdown",
+      "markdown": "## 4. Blocked Events Over Time by Vendor\nLine chart showing only blocked/denied events per vendor."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000041",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| fieldsAdd is_blocked = NOT in(raw_action, \"allow\", \"permit\", \"built\", \"accept\", \"teardown\", \"ssl-login-succeed\", \"login\", \"logout\", \"config-change\")\n| makeTimeseries palo_alto = countIf(vendor == \"Palo Alto\" AND is_blocked),\n                 cisco_asa = countIf(vendor == \"Cisco ASA\" AND is_blocked),\n                 fortinet = countIf(vendor == \"Fortinet\" AND is_blocked),\n                 interval: 5m"
+        },
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000050",
+      "type": "markdown",
+      "markdown": "## 5. Action Breakdown Across All Vendors\nRaw action values by vendor — shows how each firewall labels permit/deny actions differently."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000051",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| summarize count = count(), by: { vendor, raw_action }\n| sort vendor, count desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000060",
+      "type": "markdown",
+      "markdown": "## 6. Top 20 Blocked Source IPs (All Vendors)\nMost frequently blocked source IPs across all 3 firewalls."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000061",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           src = if(log.source == \"palo-alto-firewall\", paloalto.src,\n                 else: if(log.source == \"cisco-asa\", cisco.src_ip,\n                 else: fortinet.srcip)),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| filter NOT in(raw_action, \"allow\", \"permit\", \"built\", \"accept\", \"teardown\", \"ssl-login-succeed\", \"login\", \"logout\", \"config-change\")\n| summarize block_count = count(),\n            vendors = collectDistinct(vendor),\n            by: { src }\n| sort block_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000070",
+      "type": "markdown",
+      "markdown": "## 7. Top 20 Targeted Destinations (All Vendors)\nMost frequently targeted destination IPs across all firewalls."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000071",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           dst = if(log.source == \"palo-alto-firewall\", paloalto.dst,\n                 else: if(log.source == \"cisco-asa\", cisco.dst_ip,\n                 else: fortinet.dstip)),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| filter NOT in(raw_action, \"allow\", \"permit\", \"built\", \"accept\", \"teardown\", \"ssl-login-succeed\", \"login\", \"logout\", \"config-change\")\n| summarize block_count = count(),\n            vendors = collectDistinct(vendor),\n            attacking_sources = countDistinct(if(log.source == \"palo-alto-firewall\", paloalto.src,\n                                                else: if(log.source == \"cisco-asa\", cisco.src_ip,\n                                                else: fortinet.srcip))),\n            by: { dst }\n| sort block_count desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {},
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000080",
+      "type": "markdown",
+      "markdown": "## 8. High-Risk Port Blocks Across Vendors\nBlocked connections targeting high-risk ports (RDP, SQL, FTP, SSH, suspicious)."
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000081",
+      "type": "dql",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter in(log.source, \"palo-alto-firewall\", \"cisco-asa\", \"fortinet-fortigate\")\n| fieldsAdd vendor = if(log.source == \"palo-alto-firewall\", \"Palo Alto\",\n                     else: if(log.source == \"cisco-asa\", \"Cisco ASA\",\n                     else: \"Fortinet\")),\n           dst_port = if(log.source == \"palo-alto-firewall\", paloalto.dport,\n                      else: if(log.source == \"cisco-asa\", cisco.dst_port,\n                      else: fortinet.dstport)),\n           raw_action = if(log.source == \"palo-alto-firewall\", paloalto.action,\n                         else: if(log.source == \"cisco-asa\", cisco.action,\n                         else: fortinet.action))\n| filter NOT in(raw_action, \"allow\", \"permit\", \"built\", \"accept\", \"teardown\", \"ssl-login-succeed\", \"login\", \"logout\", \"config-change\")\n| filter in(dst_port, 3389, 1433, 3306, 21, 4444, 22, 445)\n| summarize block_count = count(),\n            vendors = collectDistinct(vendor),\n            by: { dst_port }\n| sort block_count desc"
+        },
+        "visualization": "categoricalBarChart",
+        "visualizationSettings": {
+          "thresholds": [],
+          "chartSettings": {
+            "categoricalBarChartSettings": {
+              "categoryAxis": "dst_port",
+              "categoryAxisLabel": "Destination Port",
+              "valueAxis": "block_count",
+              "valueAxisLabel": "Block Count"
+            }
+          },
+          "table": {
+            "enableLineWrap": true,
+            "hiddenColumns": [],
+            "lineWrapIds": []
+          }
+        }
+      }
+    },
+    {
+      "id": "u1000000-0000-0000-0000-000000000090",
+      "type": "markdown",
+      "markdown": "---\n\n## Normalization Reference\n\n| Field | Palo Alto | Cisco ASA | Fortinet |\n|-------|-----------|-----------|----------|\n| **Vendor** | `log.source = palo-alto-firewall` | `log.source = cisco-asa` | `log.source = fortinet-fortigate` |\n| **Action** | `paloalto.action` (allow/deny/drop/reset-both) | `cisco.action` (permit/deny/built/teardown/auth-failed) | `fortinet.action` (accept/deny/dropped/server-rst/client-rst) |\n| **Source IP** | `paloalto.src` | `cisco.src_ip` | `fortinet.srcip` |\n| **Dest IP** | `paloalto.dst` | `cisco.dst_ip` | `fortinet.dstip` |\n| **Dest Port** | `paloalto.dport` | `cisco.dst_port` | `fortinet.dstport` |\n| **Rule/Policy** | `paloalto.rule` | `cisco.acl_name` / `cisco.message_id` | `fortinet.policyname` |\n| **Blocked = NOT in** | `allow` | `permit, built, teardown` | `accept, ssl-login-succeed, login, logout, config-change` |"
+    }
+  ]
+}
